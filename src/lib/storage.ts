@@ -1,8 +1,11 @@
 // Filesystem storage helpers — server-side only.
 // All participant data, libraries, findings, and logic spaces live under DATA_DIR.
+// When GITHUB_TOKEN, GITHUB_OWNER, and GITHUB_REPO are set, all I/O is routed
+// to the GitHub Contents API instead (see github-storage.ts).
 
 import fs from 'fs/promises'
 import path from 'path'
+import * as gh from './github-storage'
 import type {
   Participant,
   LibraryMeta,
@@ -14,6 +17,10 @@ import type {
   ComparisonConfig,
   Notification,
 } from '@/types/orbitalfork'
+
+function isGitHubMode(): boolean {
+  return !!(process.env.GITHUB_TOKEN && process.env.GITHUB_OWNER && process.env.GITHUB_REPO)
+}
 
 function getDataDir(): string {
   return process.env.DATA_DIR ?? path.join(process.cwd(), 'data')
@@ -34,6 +41,7 @@ async function ensureDir(dirPath: string): Promise<void> {
 // ─── Participant ──────────────────────────────────────────────────────────────
 
 export async function getParticipant(id: string): Promise<Participant | null> {
+  if (isGitHubMode()) return gh.getParticipant(id)
   try {
     const raw = await fs.readFile(path.join(participantDir(id), 'profile.json'), 'utf-8')
     return JSON.parse(raw) as Participant
@@ -43,6 +51,7 @@ export async function getParticipant(id: string): Promise<Participant | null> {
 }
 
 export async function getAllParticipants(): Promise<Participant[]> {
+  if (isGitHubMode()) return gh.getAllParticipants()
   const baseDir = path.join(getDataDir(), 'participants')
   try {
     const entries = await fs.readdir(baseDir, { withFileTypes: true })
@@ -58,6 +67,7 @@ export async function getAllParticipants(): Promise<Participant[]> {
 }
 
 export async function saveParticipant(participant: Participant): Promise<void> {
+  if (isGitHubMode()) return gh.saveParticipant(participant)
   const dir = participantDir(participant.id)
   await ensureDir(dir)
   await ensureDir(libraryDir(participant.id))
@@ -69,12 +79,14 @@ export async function saveParticipant(participant: Participant): Promise<void> {
 }
 
 export async function deleteParticipant(id: string): Promise<void> {
+  if (isGitHubMode()) return gh.deleteParticipant(id)
   await fs.rm(participantDir(id), { recursive: true, force: true })
 }
 
 // ─── Library ──────────────────────────────────────────────────────────────────
 
 export async function getLibraryMeta(participantId: string): Promise<LibraryMeta> {
+  if (isGitHubMode()) return gh.getLibraryMeta(participantId)
   const dir = libraryDir(participantId)
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -139,6 +151,7 @@ function buildFileMeta(filename: string, content: string, lastModified: string):
 }
 
 export async function getLibraryFile(participantId: string, filename: string): Promise<LibraryFile | null> {
+  if (isGitHubMode()) return gh.getLibraryFile(participantId, filename)
   try {
     const filePath = path.join(libraryDir(participantId), filename)
     const [content, stat] = await Promise.all([
@@ -153,6 +166,7 @@ export async function getLibraryFile(participantId: string, filename: string): P
 }
 
 export async function getAllLibraryFiles(participantId: string): Promise<LibraryFile[]> {
+  if (isGitHubMode()) return gh.getAllLibraryFiles(participantId)
   const dir = libraryDir(participantId)
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -172,6 +186,7 @@ export async function saveLibraryFile(
   filename: string,
   content: string
 ): Promise<LibraryFileMeta> {
+  if (isGitHubMode()) return gh.saveLibraryFile(participantId, filename, content)
   const dir = libraryDir(participantId)
   await ensureDir(dir)
   await fs.writeFile(path.join(dir, filename), content, 'utf-8')
@@ -179,6 +194,7 @@ export async function saveLibraryFile(
 }
 
 export async function deleteLibraryFile(participantId: string, filename: string): Promise<void> {
+  if (isGitHubMode()) return gh.deleteLibraryFile(participantId, filename)
   await fs.rm(path.join(libraryDir(participantId), filename), { force: true })
 }
 
@@ -190,6 +206,7 @@ export async function extractLibraryExcerpts(
   participantId: string,
   config: ComparisonConfig
 ): Promise<LibraryFile[]> {
+  if (isGitHubMode()) return gh.extractLibraryExcerpts(participantId, config)
   const allFiles = await getAllLibraryFiles(participantId)
   const maxChars = config.maxCharsPerParticipant
 
@@ -325,6 +342,7 @@ function findingsDir(): string {
 }
 
 export async function saveFinding(finding: ResonanceFinding): Promise<void> {
+  if (isGitHubMode()) return gh.saveFinding(finding)
   const dir = findingsDir()
   await ensureDir(dir)
   await fs.writeFile(
@@ -335,6 +353,7 @@ export async function saveFinding(finding: ResonanceFinding): Promise<void> {
 }
 
 export async function getFinding(id: string): Promise<ResonanceFinding | null> {
+  if (isGitHubMode()) return gh.getFinding(id)
   try {
     const raw = await fs.readFile(path.join(findingsDir(), `${id}.json`), 'utf-8')
     return JSON.parse(raw) as ResonanceFinding
@@ -344,6 +363,7 @@ export async function getFinding(id: string): Promise<ResonanceFinding | null> {
 }
 
 export async function getAllFindings(filters?: FindingFilters): Promise<ResonanceFinding[]> {
+  if (isGitHubMode()) return gh.getAllFindings(filters)
   const dir = findingsDir()
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -384,6 +404,7 @@ export async function updateFindingStatus(
   participantId: string,
   status: ResonanceFinding['statusA']
 ): Promise<void> {
+  if (isGitHubMode()) return gh.updateFindingStatus(findingId, participantId, status)
   const finding = await getFinding(findingId)
   if (!finding) return
   if (finding.participantIds[0] === participantId) {
@@ -401,6 +422,7 @@ function logicSpacesDir(): string {
 }
 
 export async function saveLogicSpace(space: LogicSpace): Promise<void> {
+  if (isGitHubMode()) return gh.saveLogicSpace(space)
   const dir = logicSpacesDir()
   await ensureDir(dir)
   await fs.writeFile(
@@ -411,6 +433,7 @@ export async function saveLogicSpace(space: LogicSpace): Promise<void> {
 }
 
 export async function getLogicSpace(id: string): Promise<LogicSpace | null> {
+  if (isGitHubMode()) return gh.getLogicSpace(id)
   try {
     const raw = await fs.readFile(path.join(logicSpacesDir(), `${id}.json`), 'utf-8')
     return JSON.parse(raw) as LogicSpace
@@ -420,6 +443,7 @@ export async function getLogicSpace(id: string): Promise<LogicSpace | null> {
 }
 
 export async function getAllLogicSpaces(): Promise<LogicSpace[]> {
+  if (isGitHubMode()) return gh.getAllLogicSpaces()
   const dir = logicSpacesDir()
   try {
     const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -441,6 +465,7 @@ function notificationsDir(): string {
 }
 
 export async function saveNotification(notification: Notification): Promise<void> {
+  if (isGitHubMode()) return gh.saveNotification(notification)
   const dir = notificationsDir()
   await ensureDir(dir)
   await fs.writeFile(
